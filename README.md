@@ -256,6 +256,10 @@ DefaultEndpointsProtocol=https;AccountName=devstoreaccount1;AccountKey=Eby8vdM02
 - [Use Azurite emulator - Microsoft Learn](https://learn.microsoft.com/en-us/azure/storage/common/storage-use-azurite)
 - [Azure/Azurite - GitHub](https://github.com/Azure/Azurite)
 
+### Go言語仕様
+
+- [Method promotion - Effective Go](https://go.dev/doc/effective_go#embedding)
+
 ### OAuth認証・User Delegation SAS関連
 
 - [Azurite OAuth Support](https://learn.microsoft.com/en-us/azure/storage/common/storage-use-azurite#oauth-authentication)

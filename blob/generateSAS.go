@@ -3,7 +3,6 @@ package blob
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
@@ -11,19 +10,6 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/service"
 )
 
-// SASOptions はSAS生成のオプション
-type SASOptions struct {
-	// Permissions SAS権限設定
-	Permissions sas.BlobPermissions
-	// ExpiryDuration SAS有効期限（デフォルト: 1時間）
-	ExpiryDuration time.Duration
-	// UseServiceSAS Service SAS強制使用（デフォルト: false = User Delegation SAS優先）
-	UseServiceSAS bool
-	// AccountKey Service SAS用のアカウントキー（UseServiceSAS=true時必須）
-	AccountKey string
-	// AccountName Service SAS用のアカウント名（UseServiceSAS=true時必須）
-	AccountName string
-}
 
 // DefaultSASOptions はデフォルトのSASオプションを返す
 func DefaultSASOptions() *SASOptions {
@@ -38,30 +24,16 @@ func DefaultSASOptions() *SASOptions {
 	}
 }
 
-// isAzuriteEnvironment はURLからAzurite環境かどうかを判定
-func isAzuriteEnvironment(url string) bool {
-	return strings.Contains(url, "localhost") || 
-		strings.Contains(url, "127.0.0.1") || 
-		strings.Contains(url, DevAccountName)
-}
-
-// applyAzuriteDefaults はAzurite環境の場合デフォルト値を設定
-func applyAzuriteDefaults(client *azblob.Client, opts *SASOptions) {
-	if isAzuriteEnvironment(client.URL()) && opts.AccountKey == "" && opts.AccountName == "" {
-		opts.AccountName = DevAccountName
-		opts.AccountKey = DevAccountKey
-	}
-}
 
 // GenerateBlobSAS はBlobのSAS URLを生成（User Delegation SASまたはService SAS）
 // Azurite環境を自動判定し、必要に応じてService SASにフォールバック
-func GenerateBlobSAS(ctx context.Context, client *azblob.Client, containerName, blobName string, opts *SASOptions) (string, error) {
+func GenerateBlobSAS(ctx context.Context, client *Client, containerName, blobName string, opts *SASOptions) (string, error) {
 	if opts == nil {
 		opts = DefaultSASOptions()
 	}
 
 	// Azurite環境の場合、デフォルト値を適用
-	applyAzuriteDefaults(client, opts)
+	client.ApplyDefaults(opts)
 
 	// Service SAS強制使用の場合のみ直接Service SAS生成
 	if opts.UseServiceSAS {
@@ -71,7 +43,7 @@ func GenerateBlobSAS(ctx context.Context, client *azblob.Client, containerName, 
 
 	// User Delegation SAS試行（失敗時はService SASにフォールバック）
 	fmt.Printf("User Delegation SAS生成を試行中...\n")
-	userDelegationSAS, err := generateUserDelegationSAS(ctx, client, containerName, blobName, opts)
+	userDelegationSAS, err := generateUserDelegationSAS(ctx, client.Client, containerName, blobName, opts)
 	if err != nil {
 		// User Delegation SAS失敗時のログ出力
 		fmt.Printf("User Delegation SAS生成失敗、Service SASにフォールバック: %v\n", err)
@@ -169,13 +141,13 @@ func generateServiceSAS(ctx context.Context, containerName, blobName string, opt
 }
 
 // GenerateContainerSAS はコンテナのSAS URLを生成
-func GenerateContainerSAS(ctx context.Context, client *azblob.Client, containerName string, opts *SASOptions) (string, error) {
+func GenerateContainerSAS(ctx context.Context, client *Client, containerName string, opts *SASOptions) (string, error) {
 	if opts == nil {
 		opts = DefaultSASOptions()
 	}
 
 	// Azurite環境の場合、デフォルト値を適用
-	applyAzuriteDefaults(client, opts)
+	client.ApplyDefaults(opts)
 
 	// Service SAS強制使用の場合のみ直接Service SAS生成
 	if opts.UseServiceSAS {
@@ -184,7 +156,7 @@ func GenerateContainerSAS(ctx context.Context, client *azblob.Client, containerN
 	}
 
 	// User Delegation SAS試行
-	userDelegationSAS, err := generateContainerUserDelegationSAS(ctx, client, containerName, opts)
+	userDelegationSAS, err := generateContainerUserDelegationSAS(ctx, client.Client, containerName, opts)
 	if err != nil {
 		fmt.Printf("Container User Delegation SAS生成失敗、Service SASを試行: %v\n", err)
 		

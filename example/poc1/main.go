@@ -8,12 +8,11 @@ import (
 	"os"
 	"strings"
 
-	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
 	"github.com/takekazu/azstorage/blob"
 )
 
 // createClient は環境変数に基づいてAzuriteまたはAzureクライアントを作成
-func createClient(ctx context.Context, useAzure bool) (*azblob.Client, error) {
+func createClient(ctx context.Context, useAzure bool) (*blob.Client, error) {
 	if useAzure {
 		return createAzureClient(ctx)
 	}
@@ -21,7 +20,7 @@ func createClient(ctx context.Context, useAzure bool) (*azblob.Client, error) {
 }
 
 // createAzureClient はAzure Storage用クライアントを作成
-func createAzureClient(ctx context.Context) (*azblob.Client, error) {
+func createAzureClient(ctx context.Context) (*blob.Client, error) {
 	fmt.Println("Azure Storage接続モード")
 
 	// 生成済みStorage Account名読み込み
@@ -44,7 +43,7 @@ func createAzureClient(ctx context.Context) (*azblob.Client, error) {
 }
 
 // createAzuriteClient はAzurite用クライアントを作成
-func createAzuriteClient(ctx context.Context) (*azblob.Client, error) {
+func createAzuriteClient(ctx context.Context) (*blob.Client, error) {
 	fmt.Println("Azurite接続モード（OAuth/Bearer Token認証）")
 
 	// Azurite用URL
@@ -60,7 +59,7 @@ func createAzuriteClient(ctx context.Context) (*azblob.Client, error) {
 }
 
 // createContainer はコンテナを作成
-func createContainer(ctx context.Context, client *azblob.Client, containerName string) error {
+func createContainer(ctx context.Context, client *blob.Client, containerName string) error {
 	_, err := client.CreateContainer(ctx, containerName, nil)
 	if err != nil && !strings.Contains(err.Error(), "ContainerAlreadyExists") {
 		return fmt.Errorf("コンテナ作成失敗: %w", err)
@@ -70,7 +69,7 @@ func createContainer(ctx context.Context, client *azblob.Client, containerName s
 }
 
 // uploadBlob はBlobをアップロード
-func uploadBlob(ctx context.Context, client *azblob.Client, containerName, blobName, data string) error {
+func uploadBlob(ctx context.Context, client *blob.Client, containerName, blobName, data string) error {
 	_, err := client.UploadStream(
 		ctx,
 		containerName,
@@ -86,7 +85,7 @@ func uploadBlob(ctx context.Context, client *azblob.Client, containerName, blobN
 }
 
 // downloadBlob はBlobをダウンロードして内容を返す
-func downloadBlob(ctx context.Context, client *azblob.Client, containerName, blobName string) (string, error) {
+func downloadBlob(ctx context.Context, client *blob.Client, containerName, blobName string) (string, error) {
 	resp, err := client.DownloadStream(ctx, containerName, blobName, nil)
 	if err != nil {
 		return "", fmt.Errorf("ダウンロード失敗: %w", err)
@@ -104,7 +103,7 @@ func downloadBlob(ctx context.Context, client *azblob.Client, containerName, blo
 }
 
 // listBlobs はBlob一覧を表示
-func listBlobs(ctx context.Context, client *azblob.Client, containerName string) error {
+func listBlobs(ctx context.Context, client *blob.Client, containerName string) error {
 	pager := client.NewListBlobsFlatPager(containerName, nil)
 	fmt.Println("\nBlob一覧:")
 	for pager.More() {

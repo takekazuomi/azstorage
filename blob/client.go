@@ -6,9 +6,13 @@ import (
 	"fmt"
 	"net/http"
 
+	"strings"
+	"time"
+
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
+	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/sas"
 )
 
 const (
@@ -31,6 +35,49 @@ func WithInsecureSkipVerify() Option {
 	return func(opts *clientOptions) {
 		opts.insecureSkipVerify = true
 	}
+}
+
+// SASOptions はSAS生成のオプション
+type SASOptions struct {
+	// Permissions SAS権限設定
+	Permissions sas.BlobPermissions
+	// ExpiryDuration SAS有効期限（デフォルト: 1時間）
+	ExpiryDuration time.Duration
+	// UseServiceSAS Service SAS強制使用（デフォルト: false = User Delegation SAS優先）
+	UseServiceSAS bool
+	// AccountKey Service SAS用のアカウントキー（UseServiceSAS=true時必須）
+	AccountKey string
+	// AccountName Service SAS用のアカウント名（UseServiceSAS=true時必須）
+	AccountName string
+}
+
+// Client はAzure Blob Storage拡張クライアント
+type Client struct {
+	*azblob.Client
+	isAzurite       bool
+	azuriteDefaults *SASOptions
+}
+
+// IsAzurite はAzurite環境かどうかを返す
+func (c *Client) IsAzurite() bool {
+	return c.isAzurite
+}
+
+// ApplyDefaults はAzurite環境の場合デフォルト値を設定
+func (c *Client) ApplyDefaults(opts *SASOptions) {
+	if c.isAzurite && c.azuriteDefaults != nil {
+		if opts.AccountKey == "" && opts.AccountName == "" {
+			opts.AccountKey = c.azuriteDefaults.AccountKey
+			opts.AccountName = c.azuriteDefaults.AccountName
+		}
+	}
+}
+
+// isAzuriteEnvironment はURLからAzurite環境かどうかを判定
+func isAzuriteEnvironment(url string) bool {
+	return strings.Contains(url, "localhost") ||
+		strings.Contains(url, "127.0.0.1") ||
+		strings.Contains(url, DevAccountName)
 }
 
 // NewClient はDefaultAzureCredentialを使用してAzure Blob Storageクライアントを作成
@@ -57,7 +104,7 @@ func WithInsecureSkipVerify() Option {
 //   - "AzureCLICredential", "EnvironmentCredential", "ManagedIdentityCredential" 等
 //
 // 参考: https://learn.microsoft.com/en-us/azure/developer/go/sdk/authentication/credential-chains
-func NewClient(ctx context.Context, blobURL string, options ...Option) (*azblob.Client, error) {
+func NewClient(ctx context.Context, blobURL string, options ...Option) (*Client, error) {
 	// オプション適用
 	opts := &clientOptions{}
 	for _, option := range options {
@@ -89,9 +136,23 @@ func NewClient(ctx context.Context, blobURL string, options ...Option) (*azblob.
 	}
 
 	// azblob.Client作成
-	client, err := azblob.NewClient(blobURL, cred, clientOpts)
+	azClient, err := azblob.NewClient(blobURL, cred, clientOpts)
 	if err != nil {
 		return nil, fmt.Errorf("クライアント作成失敗: %w", err)
+	}
+
+	// Enhanced機能付きClientとして返す
+	client := &Client{
+		Client:    azClient,
+		isAzurite: isAzuriteEnvironment(azClient.URL()),
+	}
+
+	// Azurite環境の場合デフォルト値設定
+	if client.isAzurite {
+		client.azuriteDefaults = &SASOptions{
+			AccountName: DevAccountName,
+			AccountKey:  DevAccountKey,
+		}
 	}
 
 	return client, nil
