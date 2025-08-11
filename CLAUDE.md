@@ -68,6 +68,29 @@ Azure Storage関連の機能実装に向け、以下のディレクトリ構成�
 - `blob/`: Azure Blob Storage関連機能
 - その他Azure Storage サービス（Queue, Table, File）対応予定
 
+## 開発ルール
+
+### Makefileコーディング規約
+
+- **静粛実行**: 標準出力は最小限に抑制、エラー時のみ出力
+- **標準出力を`/dev/null`へ**: 成功時の出力は`2>/dev/null`でリダイレクト
+- **エラーメッセージ**: 失敗時は`|| echo "Error: ..."`で明確なエラー表示
+- **冗長な進捗表示禁止**: `echo "=== 〜実行中 ==="`などの実行状況表示は削除
+
+例：
+
+```makefile
+# 良い例
+target: ## ターゲット説明
+ @command 2>/dev/null || echo "Error: command失敗"
+
+# 悪い例
+target: ## ターゲット説明
+ @echo "=== command実行中 ==="
+ @command
+ @echo "command完了"
+```
+
 ## 注意事項
 
 - Azure認証情報をコードにハードコーディングしない

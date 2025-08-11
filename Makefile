@@ -21,14 +21,14 @@ AZURE_USER_OBJECT_ID ?= $(shell az ad signed-in-user show --query id -o tsv 2>/d
 GOBIN := $(PWD)/tmp/bin
 MKCERT := $(GOBIN)/mkcert
 
-.PHONY: help deps azurite-start azurite-stop azurite-logs azurite-clean azurite-certs azure-check azure-set-context azure-create-rg azure-generate-name azure-create-storage-cli azure-create-storage azure-setup-msi azure-setup-user azure-setup azure-info azure-delete
+.PHONY: help deps azurite-start azurite-stop azurite-logs azurite-clean azurite-certs azure-check azure-set-context azure-create-rg azure-generate-name azure-create-storage-cli azure-create-storage azure-setup-msi azure-setup-user azure-setup azure-info azure-delete test-azurite test-azure test-all poc1-azurite poc1-azure poc1-all
 
 help: ## ヘルプ表示
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-20s %s\n", $$1, $$2}'
+	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-20s %s\n", $$1, $$2}'
 
 $(MKCERT): ## mkcertインストール
 	@mkdir -p $(GOBIN)
-	@GOBIN=$(GOBIN) go install filippo.io/mkcert@v1.4.4 || echo "Error: mkcertインストール失敗"
+	@GOBIN=$(GOBIN) go install filippo.io/mkcert@v1.4.4 2>/dev/null || echo "Error: mkcertインストール失敗"
 
 deps: $(MKCERT) ## 依存ツールのインストール
 
@@ -48,21 +48,21 @@ azurite-start: $(AZURITE_CERT_PATH) $(AZURITE_KEY_PATH) ## Azuriteコンテナ�
 		azurite --blobHost 0.0.0.0 --queueHost 0.0.0.0 --tableHost 0.0.0.0 --location /data --cert /certs/server.pem --key /certs/server-key.pem --oauth basic --debug /data/debug.log || echo "Error: Azurite起動失敗"
 
 azurite-stop: ## Azuriteコンテナ停止・削除
-	@docker stop $(AZURITE_CONTAINER_NAME) 2>/dev/null || echo "Warning: コンテナ停止失敗または既に停止済み"
-	@docker rm $(AZURITE_CONTAINER_NAME) 2>/dev/null || echo "Warning: コンテナ削除失敗または存在しない"
+	@docker stop $(AZURITE_CONTAINER_NAME) >/dev/null 2>&1 || true
+	@docker rm $(AZURITE_CONTAINER_NAME) >/dev/null 2>&1 || true
 
 azurite-logs: ## Azuriteコンテナのログ表示
 	@docker logs -f $(AZURITE_CONTAINER_NAME) || echo "Error: ログ取得失敗 - コンテナが存在しない可能性"
 
 azurite-clean: ## Azuriteデータ削除
-	@rm -rf $(AZURITE_DATA_PATH) || echo "Error: データ削除失敗"
-	@rm certs/* || echo "Error: データ削除失敗"
+	@rm -rf $(AZURITE_DATA_PATH) 2>/dev/null || echo "Error: データ削除失敗"
+	@rm -f certs/* 2>/dev/null || echo "Error: 証明書削除失敗"
 
 # 証明書ファイルが存在しない場合のみ生成
 $(AZURITE_CERT_PATH) $(AZURITE_KEY_PATH): $(MKCERT)
 	@mkdir -p $(dir $(AZURITE_CERT_PATH))
-	@$(MKCERT) -key-file $(AZURITE_KEY_PATH) -cert-file $(AZURITE_CERT_PATH) localhost 127.0.0.1 || echo "Error: 証明書生成失敗"
-	@cp $$(mkcert -CAROOT)/rootCA.pem ./certs/ || echo "Error: CA証明書コピー失敗"
+	@$(MKCERT) -key-file $(AZURITE_KEY_PATH) -cert-file $(AZURITE_CERT_PATH) localhost 127.0.0.1 2>/dev/null || echo "Error: 証明書生成失敗"
+	@cp $$(mkcert -CAROOT)/rootCA.pem ./certs/ 2>/dev/null || echo "Error: CA証明書コピー失敗"
 
 azurite-certs: $(AZURITE_CERT_PATH) $(AZURITE_KEY_PATH) ## 自己署名証明書生成（mkcert使用）
 
@@ -71,17 +71,10 @@ azurite-restart: azurite-stop azurite-start ## Azuriteコンテナ再起動
 # Azure Storage Account管理
 azure-check: ## Azure CLI設定確認
 	@az account show --query '{subscriptionId:id,tenantId:tenantId,user:user.name}' --output table 2>/dev/null || echo "Error: Azure CLI未ログイン。'az login'を実行してください"
-	@echo "Environment variables:"
-	@echo "  AZURE_SUBSCRIPTION_ID=$(AZURE_SUBSCRIPTION_ID)"
-	@echo "  AZURE_TENANT_ID=$(AZURE_TENANT_ID)"
-	@echo "  AZURE_USER_OBJECT_ID=$(AZURE_USER_OBJECT_ID)"
 
 azure-set-context: ## Azure Subscription/Tenant設定
 	@if [ -n "$(AZURE_SUBSCRIPTION_ID)" ]; then \
 		az account set --subscription $(AZURE_SUBSCRIPTION_ID) 2>/dev/null || echo "Error: Subscription設定失敗"; \
-	fi
-	@if [ -n "$(AZURE_TENANT_ID)" ]; then \
-		echo "Current Tenant: $(AZURE_TENANT_ID)"; \
 	fi
 
 azure-create-rg: ## Azure Resource Group作成
@@ -149,3 +142,22 @@ azure-delete: ## Azure Storage Account削除
 		--name $$GENERATED_NAME \
 		--resource-group $(AZURE_RESOURCE_GROUP) \
 		--yes 2>/dev/null || echo "Error: Storage Account削除失敗"
+
+# 動作確認ターゲット
+test-azurite: ## Azurite環境でテスト実行
+	@go test -v ./... -tags=azurite || echo "Error: Azuriteテスト失敗"
+
+test-azure: ## Azure環境でテスト実行
+	@go test -v ./... -tags=azure || echo "Error: Azureテスト失敗"
+
+test-all: test-azurite test-azure ## 全環境でテスト実行
+
+poc1-azurite: ## POC1 Azurite環境で実行
+	@USE_AZURE=false go run example/poc1/main.go || echo "Error: POC1 Azurite実行失敗"
+
+poc1-azure: ## POC1 Azure環境で実行
+	@USE_AZURE=true go run example/poc1/main.go || echo "Error: POC1 Azure実行失敗"
+
+poc1-all: ## POC1 両環境で実行
+	@USE_AZURE=false go run example/poc1/main.go || echo "Error: POC1 Azurite実行失敗"
+	@USE_AZURE=true go run example/poc1/main.go || echo "Error: POC1 Azure実行失敗"

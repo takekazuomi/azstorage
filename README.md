@@ -98,6 +98,87 @@ USE_AZURE=true go run example/poc1/main.go
 
 同じ認証・SAS生成コードでローカル開発・本番環境の両方対応。
 
+### SAS Token Clock Skew対応
+
+**15分前開始時刻の技術的背景:**
+
+SAS Token生成時、開始時刻を現在時刻の15分前に設定している理由：
+
+- **分散システムの時刻同期問題**: 異なるマシン間で微細な時刻差（clock skew）が存在
+- **断続的認証失敗の回避**: 時刻ずれによる予期しない403エラーを防止  
+- **Microsoft公式推奨**: "set the start time to be at least 15 minutes in the past"
+- **業界標準**: AWS S3等でも同様の15分制限を採用（[RequestTimeTooSkewed](https://stackoverflow.com/questions/25964491/aws-s3-upload-fails-requesttimetooskewed)）
+
+**技術的詳細**:
+
+> "If you set the start time for a SAS to the current time, failures might occur intermittently for the first few minutes. This is due to different machines having slightly different current times (known as clock skew). In general, set the start time to be at least 15 minutes in the past."
+
+**参考文献**:
+
+- [SAS Overview - Microsoft Learn](https://learn.microsoft.com/en-us/azure/storage/common/storage-sas-overview#sas-token)
+- [Azure SDK Clock Skew Issue](https://github.com/Azure/azure-sdk-for-net/issues/39633)
+- [Stack Overflow解決策](https://stackoverflow.com/questions/66191800/azure-storage-how-to-avoid-clock-skew-issues-with-a-blob-level-sas-token)
+- [Azure Docs GitHub](https://github.com/MicrosoftDocs/azure-docs/blob/main/articles/storage/common/storage-sas-overview.md)
+
+### SAS Token取り消し（Revoke）
+
+**User Delegation SAS取り消し:**
+
+User Delegation SASを無効化する方法：
+
+1. **User Delegation Key取り消し**（最速）:
+
+   ```bash
+   # Azure CLI
+   az storage account revoke-delegation-keys \
+       --name <storage-account> \
+       --resource-group <resource-group>
+   ```
+
+2. **RBAC権限変更**:
+   - Microsoft Entra ID側のロール割り当て変更・削除
+   - User Delegation SAS作成に使用したセキュリティプリンシパルの権限削除
+
+**Service SAS取り消し:**
+
+Service SASを無効化する方法：
+
+1. **Stored Access Policy削除/変更**（推奨）:
+
+   ```bash
+   # ポリシー削除
+   az storage container policy delete \
+       --container-name <container> \
+       --name <policy-name> \
+       --account-name <storage-account>
+   
+   # 有効期限を過去の時刻に変更
+   az storage container policy update \
+       --container-name <container> \
+       --name <policy-name> \
+       --expiry "2020-01-01T00:00:00Z"
+   ```
+
+2. **Storage Account Key再生成**:
+
+   ```bash
+   # 全てのService SASが無効化される（影響大）
+   az storage account keys renew \
+       --account-name <storage-account> \
+       --key primary
+   ```
+
+**重要な注意事項**:
+
+- **キャッシュ遅延**: Azure Storageによるキャッシュのため、取り消し反映に遅延が発生する場合がある
+- **計画的運用**: SAS侵害時の取り消し手順を事前に準備する
+- **User Delegation SAS推奨**: Microsoft Entra ID認証によるセキュリティ向上
+
+**参考文献**:
+
+- [User Delegation SAS CLI](https://learn.microsoft.com/en-us/azure/storage/blobs/storage-blob-user-delegation-sas-create-cli)
+- [SAS取り消し方法](https://learn.microsoft.com/en-us/answers/questions/448227/what-are-the-ways-to-revoke-access-to-blob-storage)
+
 ### HTTPS要件
 
 **重要**: AzuriteでOAuth認証を使用する場合、**HTTPS必須**。

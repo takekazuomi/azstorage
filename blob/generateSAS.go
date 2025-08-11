@@ -3,6 +3,7 @@ package blob
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
@@ -37,11 +38,30 @@ func DefaultSASOptions() *SASOptions {
 	}
 }
 
+// isAzuriteEnvironment はURLからAzurite環境かどうかを判定
+func isAzuriteEnvironment(url string) bool {
+	return strings.Contains(url, "localhost") || 
+		strings.Contains(url, "127.0.0.1") || 
+		strings.Contains(url, DevAccountName)
+}
+
+// applyAzuriteDefaults はAzurite環境の場合デフォルト値を設定
+func applyAzuriteDefaults(client *azblob.Client, opts *SASOptions) {
+	if isAzuriteEnvironment(client.URL()) && opts.AccountKey == "" && opts.AccountName == "" {
+		opts.AccountName = DevAccountName
+		opts.AccountKey = DevAccountKey
+	}
+}
+
 // GenerateBlobSAS はBlobのSAS URLを生成（User Delegation SASまたはService SAS）
+// Azurite環境を自動判定し、必要に応じてService SASにフォールバック
 func GenerateBlobSAS(ctx context.Context, client *azblob.Client, containerName, blobName string, opts *SASOptions) (string, error) {
 	if opts == nil {
 		opts = DefaultSASOptions()
 	}
+
+	// Azurite環境の場合、デフォルト値を適用
+	applyAzuriteDefaults(client, opts)
 
 	// Service SAS強制使用の場合のみ直接Service SAS生成
 	if opts.UseServiceSAS {
@@ -70,8 +90,10 @@ func GenerateBlobSAS(ctx context.Context, client *azblob.Client, containerName, 
 
 // generateUserDelegationSAS はUser Delegation SASを生成
 func generateUserDelegationSAS(ctx context.Context, client *azblob.Client, containerName, blobName string, opts *SASOptions) (string, error) {
-	// 時間設定（時刻ずれ対応で少し前から開始）
-	start := time.Now().Add(-5 * time.Minute)
+	// SAS開始時刻設定（clock skew対応）
+	// "Be careful with SAS start time. set the start time to be at least 15 minutes in the past"
+	// 参考: https://learn.microsoft.com/en-us/azure/storage/common/storage-sas-overview#sas-token
+	start := time.Now().Add(-15 * time.Minute)
 	expiry := start.Add(opts.ExpiryDuration)
 
 	// User Delegation Key取得
@@ -114,8 +136,8 @@ func generateServiceSAS(ctx context.Context, containerName, blobName string, opt
 		return "", fmt.Errorf("Service SAS生成にはAccountKeyとAccountNameが必要")
 	}
 
-	// 時間設定（時刻ずれ対応で少し前から開始）
-	start := time.Now().Add(-5 * time.Minute)
+	// SAS開始時刻設定（clock skew対応で15分前から開始）
+	start := time.Now().Add(-15 * time.Minute)
 	expiry := start.Add(opts.ExpiryDuration)
 
 	// Shared Key Credential作成
@@ -152,8 +174,12 @@ func GenerateContainerSAS(ctx context.Context, client *azblob.Client, containerN
 		opts = DefaultSASOptions()
 	}
 
-	// Service SAS強制使用または必要な情報が揃っている場合
-	if opts.UseServiceSAS || (opts.AccountKey != "" && opts.AccountName != "") {
+	// Azurite環境の場合、デフォルト値を適用
+	applyAzuriteDefaults(client, opts)
+
+	// Service SAS強制使用の場合のみ直接Service SAS生成
+	if opts.UseServiceSAS {
+		fmt.Printf("Service SAS強制使用モード\n")
 		return generateContainerServiceSAS(ctx, containerName, opts)
 	}
 
@@ -174,7 +200,8 @@ func GenerateContainerSAS(ctx context.Context, client *azblob.Client, containerN
 
 // generateContainerUserDelegationSAS はコンテナ用User Delegation SASを生成
 func generateContainerUserDelegationSAS(ctx context.Context, client *azblob.Client, containerName string, opts *SASOptions) (string, error) {
-	start := time.Now().Add(-5 * time.Minute)
+	// SAS開始時刻設定（clock skew対応で15分前から開始）
+	start := time.Now().Add(-15 * time.Minute)
 	expiry := start.Add(opts.ExpiryDuration)
 
 	startStr := start.UTC().Format(time.RFC3339)
@@ -221,7 +248,8 @@ func generateContainerServiceSAS(ctx context.Context, containerName string, opts
 		return "", fmt.Errorf("Service SAS生成にはAccountKeyとAccountNameが必要")
 	}
 
-	start := time.Now().Add(-5 * time.Minute)
+	// SAS開始時刻設定（clock skew対応で15分前から開始）
+	start := time.Now().Add(-15 * time.Minute)
 	expiry := start.Add(opts.ExpiryDuration)
 
 	credential, err := azblob.NewSharedKeyCredential(opts.AccountName, opts.AccountKey)

@@ -119,20 +119,6 @@ func listBlobs(ctx context.Context, client *azblob.Client, containerName string)
 	return nil
 }
 
-// prepareSASOptions はSASオプションを準備（User Delegation SAS優先）
-func prepareSASOptions(useAzure bool) *blob.SASOptions {
-	opts := blob.DefaultSASOptions()
-	
-	// Azurite環境でもUser Delegation SAS試行（フォールバック用にService SAS情報設定）
-	if !useAzure {
-		// User Delegation SAS試行、失敗時のService SAS用情報
-		opts.AccountName = "devstoreaccount1"
-		opts.AccountKey = "Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw=="
-		// UseServiceSAS = falseのまま（User Delegation SAS優先試行）
-	}
-	
-	return opts
-}
 
 // getTestData は接続先に応じたテストデータを返す
 func getTestData(useAzure bool) string {
@@ -175,10 +161,9 @@ func main() {
 		log.Fatal(err)
 	}
 
-	// SAS URL生成（両環境対応）
+	// SAS URL生成（両環境対応、Azurite自動判定）
 	fmt.Println("\n=== SAS URL生成 ===")
-	sasOpts := prepareSASOptions(useAzure)
-	sasURL, err := blob.GenerateBlobSAS(ctx, client, containerName, blobName, sasOpts)
+	sasURL, err := blob.GenerateBlobSAS(ctx, client, containerName, blobName, nil)
 	if err != nil {
 		log.Printf("SAS生成エラー: %v", err)
 	} else {

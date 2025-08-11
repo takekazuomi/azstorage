@@ -11,6 +11,13 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
 )
 
+const (
+	// DevAccountName はAzureローカル開発ストレージ(Azurite)のデフォルトアカウント名
+	DevAccountName = "devstoreaccount1"
+	// DevAccountKey はAzureローカル開発ストレージ(Azurite)のデフォルトアカウントキー
+	DevAccountKey = "Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw=="
+)
+
 // clientOptions は内部設定構造体
 type clientOptions struct {
 	insecureSkipVerify bool
@@ -36,18 +43,18 @@ func WithInsecureSkipVerify() Option {
 //  5. Azure Developer CLI Credential (azd auth login)
 //
 // Environment Credential用環境変数：
-//  - AZURE_TENANT_ID: テナントID (必須)
-//  - AZURE_CLIENT_ID: クライアント(アプリケーション)ID (必須)
-//  - AZURE_CLIENT_SECRET: クライアントシークレット (ClientSecret認証用)
-//  - AZURE_CLIENT_CERTIFICATE_PATH: 証明書パス (Certificate認証用)
-//  - AZURE_USERNAME, AZURE_PASSWORD: ユーザー名/パスワード (UsernamePassword認証用)
+//   - AZURE_TENANT_ID: テナントID (必須)
+//   - AZURE_CLIENT_ID: クライアント(アプリケーション)ID (必須)
+//   - AZURE_CLIENT_SECRET: クライアントシークレット (ClientSecret認証用)
+//   - AZURE_CLIENT_CERTIFICATE_PATH: 証明書パス (Certificate認証用)
+//   - AZURE_USERNAME, AZURE_PASSWORD: ユーザー名/パスワード (UsernamePassword認証用)
 //
 // 認証チェーン制御用環境変数 (AZURE_TOKEN_CREDENTIALS):
-//  - azidentity v1.10.0+: カテゴリ除外
-//    - "prod": 開発者ツール認証を除外
-//    - "dev": デプロイサービス認証を除外
-//  - azidentity v1.11.0+: 特定認証選択
-//    - "AzureCLICredential", "EnvironmentCredential", "ManagedIdentityCredential" 等
+//   - azidentity v1.10.0+: カテゴリ除外
+//   - "prod": 開発者ツール認証を除外
+//   - "dev": デプロイサービス認証を除外
+//   - azidentity v1.11.0+: 特定認証選択
+//   - "AzureCLICredential", "EnvironmentCredential", "ManagedIdentityCredential" 等
 //
 // 参考: https://learn.microsoft.com/en-us/azure/developer/go/sdk/authentication/credential-chains
 func NewClient(ctx context.Context, blobURL string, options ...Option) (*azblob.Client, error) {
