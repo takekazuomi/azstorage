@@ -3,12 +3,15 @@ ignorePaths: []
 dictionaryDefinitions: []
 dictionaries: []
 words:
+  - azcore
   - azstorage
   - CAROOT
   - certmgr
   - devstoreaccount
+  - envrc
   - filippo
   - GOBIN
+  - japaneast
   - MKCERT
 ignoreWords: []
 import: []
