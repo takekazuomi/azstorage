@@ -8,8 +8,11 @@ Azure Storage のシンプルなラッパーライブラリ。Go言語で実装�
 
 1. Azurite 開発ストレージとAzure Storageアカウントの統合
 2. Azure開発でのMSI（Managed Service Identity）サポート
+3. User Delegation SAS / Service SAS生成機能
+4. 環境別認証方式自動選択（OAuth/Account Key）
+5. HTTP/HTTPS両環境対応
 
-## 開発環境構成
+## ローカル開発環境構成
 
 - 言語: Go 1.24.2
 - モジュール: github.com/takekazu/azstorage
@@ -19,7 +22,7 @@ Azure Storage のシンプルなラッパーライブラリ。Go言語で実装�
 
 ## 開発コマンド
 
-### Azurite開発環境
+### Azurite環境
 
 - 依存ツール準備: `make deps`
 - 証明書生成: `make azurite-certs`
@@ -34,6 +37,13 @@ Azure Storage のシンプルなラッパーライブラリ。Go言語で実装�
 - テスト: `go test ./...`
 - リンター: `go vet ./...`
 - モジュール管理: `go mod tidy`
+
+### POC動作確認
+
+- HTTPS環境: `make poc1-azurite`
+- HTTP環境: `AZURITE_HTTP=true make poc1-azurite`
+- Azure環境: `make poc1-azure`
+- 全環境テスト: `make poc1-all`
 
 ## 証明書とHTTPS設定
 
@@ -50,7 +60,7 @@ Azure Storage のシンプルなラッパーライブラリ。Go言語で実装�
 
 ## プロジェクト構造
 
-```
+```text
 .
 ├── Makefile              # Azurite開発環境管理
 ├── .envrc               # direnv環境変数設定
@@ -58,14 +68,35 @@ Azure Storage のシンプルなラッパーライブラリ。Go言語で実装�
 ├── tmp/bin/             # ローカルツール（mkcert等）
 ├── certs/               # SSL証明書
 ├── data/azurite/        # Azuriteデータ保存
-└── blob/                # Azure Blob Storage機能（予定）
+├── blob/                # Azure Blob Storage機能
+│   ├── client.go        # 拡張クライアント（埋め込みパターン）
+│   └── generateSAS.go   # SAS生成機能
+└── example/poc1/        # POCサンプル
 ```
 
-## 今後の開発予定
+## アーキテクチャ
+
+### Client構造体（埋め込みパターン）
+
+```go
+type Client struct {
+    *azblob.Client        // 埋め込みによるメソッドプロモーション
+    isAzurite       bool  // 環境判定
+    azuriteDefaults *SASOptions  // デフォルト値
+}
+```
+
+### 環境別認証方式
+
+- **Azure**: OAuth認証（DefaultAzureCredential）
+- **Azurite HTTPS**: OAuth認証 + InsecureSkipVerify自動適用
+- **Azurite HTTP**: Account Key認証のみ
+
+### 今後の開発予定
 
 Azure Storage関連の機能実装に向け、以下のディレクトリ構成を想定：
 
-- `blob/`: Azure Blob Storage関連機能
+- `blob/`: Azure Blob Storage関連機能（実装済み）
 - その他Azure Storage サービス（Queue, Table, File）対応予定
 
 ## 開発ルール

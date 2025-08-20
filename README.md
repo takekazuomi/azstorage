@@ -5,7 +5,7 @@ Azure Storage のシンプルなラッパー
 1. Azurite 開発ストレージとAzure Storageアカウントの統合
 2. Azure開発でのMSIサポート
 
-## 開発環境セットアップ
+## ローカル開発環境セットアップ
 
 ### Azurite起動
 
@@ -98,6 +98,16 @@ USE_AZURE=true go run example/poc1/main.go
 
 同じ認証・SAS生成コードでローカル開発・本番環境の両方対応。
 
+## 環境別機能対応
+
+| 環境 | プロトコル | 認証方式 | User Delegation SAS | Service SAS |
+|------|------------|----------|-------------------|-------------|
+| Azure | HTTPS | OAuth | ✅ | ✅ |
+| Azurite HTTPS | HTTPS | OAuth | ✅ | ✅ |
+| Azurite HTTP | HTTP | Account Key | ❌ | ✅ |
+
+**注**: Azurite HTTPS環境では自動的にInsecureSkipVerify適用
+
 ### SAS Token Clock Skew対応
 
 **15分前開始時刻の技術的背景:**
@@ -178,6 +188,49 @@ Service SASを無効化する方法：
 
 - [User Delegation SAS CLI](https://learn.microsoft.com/en-us/azure/storage/blobs/storage-blob-user-delegation-sas-create-cli)
 - [SAS取り消し方法](https://learn.microsoft.com/en-us/answers/questions/448227/what-are-the-ways-to-revoke-access-to-blob-storage)
+
+## API使用例
+
+### 基本的な使用方法
+
+```go
+import "github.com/takekazu/azstorage/blob"
+
+// 環境自動判定でクライアント作成
+client, err := blob.NewClient(ctx, blobURL)
+
+// SAS生成（環境に応じて最適なSAS種類を自動選択）
+sasURL, err := blob.GenerateBlobSAS(ctx, client, containerName, blobName, nil)
+```
+
+### User Delegation SAS強制使用
+
+```go
+opts := &blob.SASOptions{
+    UseUserDelegationSAS: true,  // HTTP環境では適切なエラーメッセージ
+}
+sasURL, err := blob.GenerateBlobSAS(ctx, client, containerName, blobName, opts)
+```
+
+### Service SAS強制使用  
+
+```go
+opts := &blob.SASOptions{
+    UseServiceSAS: true,
+}
+sasURL, err := blob.GenerateBlobSAS(ctx, client, containerName, blobName, opts)
+```
+
+### HTTP環境の制限
+
+**制約**:
+- OAuth認証不可（Account Key認証のみ）
+- User Delegation SAS生成不可（Service SASのみ）
+
+**エラーメッセージ**:
+```text
+User Delegation SASはHTTP環境では利用できません。HTTPS環境を使用するか、UseUserDelegationSAS=falseに設定してService SASを使用してください
+```
 
 ### HTTPS要件
 

@@ -35,13 +35,22 @@ func GenerateBlobSAS(ctx context.Context, client *Client, containerName, blobNam
 	// Azurite環境の場合、デフォルト値を適用
 	client.ApplyDefaults(opts)
 
-	// Service SAS強制使用の場合のみ直接Service SAS生成
-	if opts.UseServiceSAS {
-		fmt.Printf("Service SAS強制使用モード\n")
+	// HTTP環境でUser Delegation SAS強制使用の場合はエラー
+	if client.IsHTTP() && opts.UseUserDelegationSAS {
+		return "", fmt.Errorf("User Delegation SASはHTTP環境では利用できません。HTTPS環境を使用するか、UseUserDelegationSAS=falseに設定してService SASを使用してください")
+	}
+
+	// HTTP環境またはService SAS強制使用の場合は直接Service SAS生成
+	if client.IsHTTP() || opts.UseServiceSAS {
+		if client.IsHTTP() {
+			fmt.Printf("HTTP環境検出: Service SASのみ対応\n")
+		} else {
+			fmt.Printf("Service SAS強制使用モード\n")
+		}
 		return generateServiceSAS(ctx, containerName, blobName, opts)
 	}
 
-	// User Delegation SAS試行（失敗時はService SASにフォールバック）
+	// HTTPS環境: User Delegation SAS試行（失敗時はService SASにフォールバック）
 	fmt.Printf("User Delegation SAS生成を試行中...\n")
 	userDelegationSAS, err := generateUserDelegationSAS(ctx, client.Client, containerName, blobName, opts)
 	if err != nil {
@@ -149,13 +158,22 @@ func GenerateContainerSAS(ctx context.Context, client *Client, containerName str
 	// Azurite環境の場合、デフォルト値を適用
 	client.ApplyDefaults(opts)
 
-	// Service SAS強制使用の場合のみ直接Service SAS生成
-	if opts.UseServiceSAS {
-		fmt.Printf("Service SAS強制使用モード\n")
+	// HTTP環境でUser Delegation SAS強制使用の場合はエラー
+	if client.IsHTTP() && opts.UseUserDelegationSAS {
+		return "", fmt.Errorf("User Delegation SASはHTTP環境では利用できません。HTTPS環境を使用するか、UseUserDelegationSAS=falseに設定してService SASを使用してください")
+	}
+
+	// HTTP環境またはService SAS強制使用の場合は直接Service SAS生成
+	if client.IsHTTP() || opts.UseServiceSAS {
+		if client.IsHTTP() {
+			fmt.Printf("HTTP環境検出: Service SASのみ対応\n")
+		} else {
+			fmt.Printf("Service SAS強制使用モード\n")
+		}
 		return generateContainerServiceSAS(ctx, containerName, opts)
 	}
 
-	// User Delegation SAS試行
+	// HTTPS環境: User Delegation SAS試行
 	userDelegationSAS, err := generateContainerUserDelegationSAS(ctx, client.Client, containerName, opts)
 	if err != nil {
 		fmt.Printf("Container User Delegation SAS生成失敗、Service SASを試行: %v\n", err)

@@ -45,6 +45,8 @@ type SASOptions struct {
 	ExpiryDuration time.Duration
 	// UseServiceSAS Service SAS強制使用（デフォルト: false = User Delegation SAS優先）
 	UseServiceSAS bool
+	// UseUserDelegationSAS User Delegation SAS強制使用（デフォルト: false）
+	UseUserDelegationSAS bool
 	// AccountKey Service SAS用のアカウントキー（UseServiceSAS=true時必須）
 	AccountKey string
 	// AccountName Service SAS用のアカウント名（UseServiceSAS=true時必須）
@@ -63,6 +65,16 @@ func (c *Client) IsAzurite() bool {
 	return c.isAzurite
 }
 
+// IsHTTP はHTTP環境かどうかを返す
+func (c *Client) IsHTTP() bool {
+	return strings.HasPrefix(c.URL(), "http://")
+}
+
+// IsHTTPS はHTTPS環境かどうかを返す  
+func (c *Client) IsHTTPS() bool {
+	return strings.HasPrefix(c.URL(), "https://")
+}
+
 // ApplyDefaults はAzurite環境の場合デフォルト値を設定
 func (c *Client) ApplyDefaults(opts *SASOptions) {
 	if c.isAzurite && c.azuriteDefaults != nil {
@@ -75,9 +87,63 @@ func (c *Client) ApplyDefaults(opts *SASOptions) {
 
 // isAzuriteEnvironment はURLからAzurite環境かどうかを判定
 func isAzuriteEnvironment(url string) bool {
-	return strings.Contains(url, "localhost") ||
-		strings.Contains(url, "127.0.0.1") ||
-		strings.Contains(url, DevAccountName)
+	// HTTPスキームのAzurite環境
+	if strings.HasPrefix(url, "http://") && 
+		(strings.Contains(url, "localhost") || strings.Contains(url, "127.0.0.1")) {
+		return true
+	}
+	
+	// HTTPSスキームのAzurite環境
+	if strings.HasPrefix(url, "https://") &&
+		(strings.Contains(url, "localhost") || strings.Contains(url, "127.0.0.1")) {
+		return true
+	}
+	
+	// devstoreaccount1を含む場合（スキーム問わず）
+	if strings.Contains(url, DevAccountName) {
+		return true
+	}
+	
+	return false
+}
+
+// createOAuthClient はOAuth認証でクライアント作成
+func createOAuthClient(blobURL string, opts *clientOptions) (*azblob.Client, error) {
+	// DefaultAzureCredential取得
+	cred, err := azidentity.NewDefaultAzureCredential(nil)
+	if err != nil {
+		return nil, fmt.Errorf("認証情報作成失敗: %w", err)
+	}
+
+	// ClientOptions設定
+	var clientOpts *azblob.ClientOptions
+	if opts.insecureSkipVerify {
+		httpClient := &http.Client{
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{
+					InsecureSkipVerify: true,
+				},
+			},
+		}
+		clientOpts = &azblob.ClientOptions{
+			ClientOptions: azcore.ClientOptions{
+				Transport: httpClient,
+			},
+		}
+	}
+
+	return azblob.NewClient(blobURL, cred, clientOpts)
+}
+
+// createAccountKeyClient はAccount Key認証でクライアント作成
+func createAccountKeyClient(blobURL string) (*azblob.Client, error) {
+	// Azurite固定のAccount Key認証情報
+	credential, err := azblob.NewSharedKeyCredential(DevAccountName, DevAccountKey)
+	if err != nil {
+		return nil, fmt.Errorf("Account Key認証情報作成失敗: %w", err)
+	}
+
+	return azblob.NewClientWithSharedKeyCredential(blobURL, credential, nil)
 }
 
 // NewClient はDefaultAzureCredentialを使用してAzure Blob Storageクライアントを作成
@@ -111,32 +177,29 @@ func NewClient(ctx context.Context, blobURL string, options ...Option) (*Client,
 		option(opts)
 	}
 
-	// DefaultAzureCredential取得
-	cred, err := azidentity.NewDefaultAzureCredential(nil)
-	if err != nil {
-		return nil, fmt.Errorf("認証情報作成失敗: %w", err)
+	var azClient *azblob.Client
+	var err error
+
+	// Azurite環境の場合の処理
+	if isAzuriteEnvironment(blobURL) {
+		if strings.HasPrefix(blobURL, "https://") {
+			// HTTPS Azurite: OAuth認証 + InsecureSkipVerify
+			if !opts.insecureSkipVerify {
+				opts.insecureSkipVerify = true
+				fmt.Printf("Azurite HTTPS環境検出: OAuth認証 + 自己署名証明書を自動許可\n")
+			}
+			azClient, err = createOAuthClient(blobURL, opts)
+		} else if strings.HasPrefix(blobURL, "http://") {
+			// HTTP Azurite: Account Key認証
+			fmt.Printf("Azurite HTTP環境検出: Account Key認証を使用\n")
+			azClient, err = createAccountKeyClient(blobURL)
+		}
+	} else {
+		// Azure Storage: OAuth認証
+		fmt.Printf("Azure Storage環境検出: OAuth認証を使用\n")
+		azClient, err = createOAuthClient(blobURL, opts)
 	}
 
-	// ClientOptions設定
-	var clientOpts *azblob.ClientOptions
-	if opts.insecureSkipVerify {
-		// 自己署名証明書を許可するHTTPクライアント設定
-		httpClient := &http.Client{
-			Transport: &http.Transport{
-				TLSClientConfig: &tls.Config{
-					InsecureSkipVerify: true,
-				},
-			},
-		}
-		clientOpts = &azblob.ClientOptions{
-			ClientOptions: azcore.ClientOptions{
-				Transport: httpClient,
-			},
-		}
-	}
-
-	// azblob.Client作成
-	azClient, err := azblob.NewClient(blobURL, cred, clientOpts)
 	if err != nil {
 		return nil, fmt.Errorf("クライアント作成失敗: %w", err)
 	}

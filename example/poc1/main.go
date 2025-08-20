@@ -46,11 +46,17 @@ func createAzureClient(ctx context.Context) (*blob.Client, error) {
 func createAzuriteClient(ctx context.Context) (*blob.Client, error) {
 	fmt.Println("Azurite接続モード（OAuth/Bearer Token認証）")
 
-	// Azurite用URL
-	blobURL := "https://localhost:20000/devstoreaccount1"
+	// HTTP/HTTPS切り替え対応
+	scheme := "https" // デフォルトHTTPS
+	if os.Getenv("AZURITE_HTTP") == "true" {
+		scheme = "http"
+	}
 
-	// Azuriteクライアント作成（自己署名証明書対応）
-	client, err := blob.NewClient(ctx, blobURL, blob.WithInsecureSkipVerify())
+	// Azurite用URL
+	blobURL := fmt.Sprintf("%s://localhost:20000/devstoreaccount1", scheme)
+
+	// Azuriteクライアント作成（自動判定対応）
+	client, err := blob.NewClient(ctx, blobURL)
 	if err != nil {
 		return nil, fmt.Errorf("Azuriteクライアント作成失敗: %w", err)
 	}
