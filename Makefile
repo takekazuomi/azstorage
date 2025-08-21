@@ -1,13 +1,20 @@
 # Azure Storage開発用Makefile
 
-# 環境変数のデフォルト値設定
-AZURITE_BLOB_PORT ?= 10000
-AZURITE_QUEUE_PORT ?= 10001
-AZURITE_TABLE_PORT ?= 10002
-AZURITE_DATA_PATH ?= ./data/azurite
-AZURITE_CONTAINER_NAME ?= azurite-dev
+# Azurite環境設定
 AZURITE_CERT_PATH ?= ./certs/server.pem
 AZURITE_KEY_PATH ?= ./certs/server-key.pem
+
+# Docker Compose設定
+COMPOSE_PROJECT_NAME ?= azstorage
+COMPOSE_FILE ?= docker-compose.yml
+
+# HTTP/HTTPS環境分離設定
+AZURITE_HTTP_PORT ?= 20000
+AZURITE_HTTPS_PORT ?= 21000
+AZURITE_HTTP_SERVICE ?= azurite-http
+AZURITE_HTTPS_SERVICE ?= azurite-https
+AZURITE_HTTP_DATA_PATH ?= ./data/azurite-http
+AZURITE_HTTPS_DATA_PATH ?= ./data/azurite-https
 
 # Azure設定
 AZURE_RESOURCE_GROUP ?= azstorage-dev
@@ -21,7 +28,7 @@ AZURE_USER_OBJECT_ID ?= $(shell az ad signed-in-user show --query id -o tsv 2>/d
 GOBIN := $(PWD)/tmp/bin
 MKCERT := $(GOBIN)/mkcert
 
-.PHONY: help deps azurite-start azurite-stop azurite-logs azurite-clean azurite-certs azure-check azure-set-context azure-create-rg azure-generate-name azure-create-storage-cli azure-create-storage azure-setup-msi azure-setup-user azure-setup azure-info azure-delete test-azurite test-azure test-all poc1-azurite poc1-azure poc1-all
+.PHONY: help deps azurite-start azurite-stop azurite-restart azurite-clean azurite-certs azurite-logs azure-check azure-set-context azure-create-rg azure-generate-name azure-create-storage-cli azure-create-storage azure-setup-msi azure-setup-user azure-setup azure-info azure-delete test-azurite test-azure test-all poc1-azurite poc1-azure poc1-all
 
 help: ## ヘルプ表示
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-20s %s\n", $$1, $$2}'
@@ -32,31 +39,10 @@ $(MKCERT): ## mkcertインストール
 
 deps: $(MKCERT) ## 依存ツールのインストール
 
-azurite-start: $(AZURITE_CERT_PATH) $(AZURITE_KEY_PATH) ## Azuriteコンテナ起動
-	@mkdir -p $(AZURITE_DATA_PATH)
-	@mkdir -p $(dir $(AZURITE_CERT_PATH))
-	@docker rm -f $(AZURITE_CONTAINER_NAME) 2>/dev/null || true
-	@docker run -d \
-		--name $(AZURITE_CONTAINER_NAME) \
-		-p $(AZURITE_BLOB_PORT):10000 \
-		-p $(AZURITE_QUEUE_PORT):10001 \
-		-p $(AZURITE_TABLE_PORT):10002 \
-		-v $(PWD)/$(AZURITE_DATA_PATH):/data \
-		-v $(PWD)/$(AZURITE_CERT_PATH):/certs/server.pem \
-		-v $(PWD)/$(AZURITE_KEY_PATH):/certs/server-key.pem \
-		mcr.microsoft.com/azure-storage/azurite:3.35.0 \
-		azurite --blobHost 0.0.0.0 --queueHost 0.0.0.0 --tableHost 0.0.0.0 --location /data --cert /certs/server.pem --key /certs/server-key.pem --oauth basic --debug /data/debug.log || echo "Error: Azurite起動失敗"
 
-azurite-stop: ## Azuriteコンテナ停止・削除
-	@docker stop $(AZURITE_CONTAINER_NAME) >/dev/null 2>&1 || true
-	@docker rm $(AZURITE_CONTAINER_NAME) >/dev/null 2>&1 || true
-
-azurite-logs: ## Azuriteコンテナのログ表示
-	@docker logs -f $(AZURITE_CONTAINER_NAME) || echo "Error: ログ取得失敗 - コンテナが存在しない可能性"
-
-azurite-clean: ## Azuriteデータ削除
-	@rm -rf $(AZURITE_DATA_PATH) 2>/dev/null || echo "Error: データ削除失敗"
-	@rm -f certs/* 2>/dev/null || echo "Error: 証明書削除失敗"
+azurite-clean: ## 全Azuriteデータ・証明書削除
+	@rm -rf $(AZURITE_HTTP_DATA_PATH) $(AZURITE_HTTPS_DATA_PATH) 2>/dev/null || true
+	@rm -f certs/* 2>/dev/null || true
 
 # 証明書ファイルが存在しない場合のみ生成
 $(AZURITE_CERT_PATH) $(AZURITE_KEY_PATH): $(MKCERT)
@@ -66,7 +52,19 @@ $(AZURITE_CERT_PATH) $(AZURITE_KEY_PATH): $(MKCERT)
 
 azurite-certs: $(AZURITE_CERT_PATH) $(AZURITE_KEY_PATH) ## 自己署名証明書生成（mkcert使用）
 
-azurite-restart: azurite-stop azurite-start ## Azuriteコンテナ再起動
+
+# Azurite統合操作（Docker Compose版）
+azurite-start: azurite-certs ## Azuriteコンテナ起動（HTTP/HTTPS両環境）
+	@mkdir -p $(AZURITE_HTTP_DATA_PATH) $(AZURITE_HTTPS_DATA_PATH)
+	@docker compose up -d 2>/dev/null || echo "Error: Azurite起動失敗"
+
+azurite-stop: ## Azuriteコンテナ停止（HTTP/HTTPS両環境）
+	@docker compose down 2>/dev/null || true
+
+azurite-restart: azurite-stop azurite-start ## Azuriteコンテナ再起動（HTTP/HTTPS両環境）
+
+azurite-logs: ## Azuriteコンテナのログ表示（両環境）
+	@docker compose logs -f 2>/dev/null || echo "Error: Azuriteコンテナが起動していません"
 
 # Azure Storage Account管理
 azure-check: ## Azure CLI設定確認
@@ -152,12 +150,10 @@ test-azure: ## Azure環境でテスト実行
 
 test-all: test-azurite test-azure ## 全環境でテスト実行
 
-poc1-azurite: ## POC1 Azurite環境で実行
-	@USE_AZURE=false go run example/poc1/main.go || echo "Error: POC1 Azurite実行失敗"
+poc1-azurite: azurite-start ## POC1 Azurite環境で実行（AZURITE_HTTP環境変数で制御）
+	@AZURITE_HTTP=${AZURITE_HTTP} USE_AZURE=false go run example/poc1/main.go || echo "Error: POC1 Azurite実行失敗"
 
 poc1-azure: ## POC1 Azure環境で実行
 	@USE_AZURE=true go run example/poc1/main.go || echo "Error: POC1 Azure実行失敗"
 
-poc1-all: ## POC1 両環境で実行
-	@USE_AZURE=false go run example/poc1/main.go || echo "Error: POC1 Azurite実行失敗"
-	@USE_AZURE=true go run example/poc1/main.go || echo "Error: POC1 Azure実行失敗"
+poc1-all: poc1-azurite poc1-azure ## POC1 全環境で実行

@@ -48,12 +48,15 @@ func createAzuriteClient(ctx context.Context) (*blob.Client, error) {
 
 	// HTTP/HTTPS切り替え対応
 	scheme := "https" // デフォルトHTTPS
+	port := "21000"   // HTTPS用ポート
+	
 	if os.Getenv("AZURITE_HTTP") == "true" {
 		scheme = "http"
+		port = "20000" // HTTP用ポート
 	}
 
 	// Azurite用URL
-	blobURL := fmt.Sprintf("%s://localhost:20000/devstoreaccount1", scheme)
+	blobURL := fmt.Sprintf("%s://localhost:%s/devstoreaccount1", scheme, port)
 
 	// Azuriteクライアント作成（自動判定対応）
 	client, err := blob.NewClient(ctx, blobURL)

@@ -85,26 +85,67 @@ func (c *Client) ApplyDefaults(opts *SASOptions) {
 	}
 }
 
-// isAzuriteEnvironment はURLからAzurite環境かどうかを判定
-func isAzuriteEnvironment(url string) bool {
-	// HTTPスキームのAzurite環境
-	if strings.HasPrefix(url, "http://") && 
-		(strings.Contains(url, "localhost") || strings.Contains(url, "127.0.0.1")) {
-		return true
+// NewClientWithCredential はUnifiedCredentialを使用してAzure Blob Storageクライアントを作成
+func NewClientWithCredential(ctx context.Context, blobURL string, credential *UnifiedCredential, options ...Option) (*Client, error) {
+	// オプション適用
+	opts := &clientOptions{}
+	for _, option := range options {
+		option(opts)
 	}
-	
-	// HTTPSスキームのAzurite環境
-	if strings.HasPrefix(url, "https://") &&
-		(strings.Contains(url, "localhost") || strings.Contains(url, "127.0.0.1")) {
-		return true
+
+	var azClient *azblob.Client
+	var err error
+
+	// type switchによる認証方式判定
+	switch cred := credential.GetCredential().(type) {
+	case azcore.TokenCredential:
+		// OAuth認証
+		var clientOpts *azblob.ClientOptions
+		if opts.insecureSkipVerify || (IsAzuriteEnvironment(blobURL) && strings.HasPrefix(blobURL, "https://")) {
+			// Azurite HTTPS環境では自動的にInsecureSkipVerifyを適用
+			if IsAzuriteEnvironment(blobURL) && strings.HasPrefix(blobURL, "https://") && !opts.insecureSkipVerify {
+				fmt.Printf("Azurite HTTPS環境検出: OAuth認証 + 自己署名証明書を自動許可\n")
+			}
+			httpClient := &http.Client{
+				Transport: &http.Transport{
+					TLSClientConfig: &tls.Config{
+						InsecureSkipVerify: true,
+					},
+				},
+			}
+			clientOpts = &azblob.ClientOptions{
+				ClientOptions: azcore.ClientOptions{
+					Transport: httpClient,
+				},
+			}
+		}
+		azClient, err = azblob.NewClient(blobURL, cred, clientOpts)
+	case *azblob.SharedKeyCredential:
+		// Account Key認証
+		azClient, err = azblob.NewClientWithSharedKeyCredential(blobURL, cred, nil)
+	default:
+		return nil, fmt.Errorf("未サポートの認証タイプ: %T", cred)
 	}
-	
-	// devstoreaccount1を含む場合（スキーム問わず）
-	if strings.Contains(url, DevAccountName) {
-		return true
+
+	if err != nil {
+		return nil, fmt.Errorf("クライアント作成失敗: %w", err)
 	}
-	
-	return false
+
+	// Enhanced機能付きClientとして返す
+	client := &Client{
+		Client:    azClient,
+		isAzurite: IsAzuriteEnvironment(azClient.URL()),
+	}
+
+	// Azurite環境の場合デフォルト値設定
+	if client.isAzurite {
+		client.azuriteDefaults = &SASOptions{
+			AccountName: DevAccountName,
+			AccountKey:  DevAccountKey,
+		}
+	}
+
+	return client, nil
 }
 
 // createOAuthClient はOAuth認証でクライアント作成
@@ -146,7 +187,7 @@ func createAccountKeyClient(blobURL string) (*azblob.Client, error) {
 	return azblob.NewClientWithSharedKeyCredential(blobURL, credential, nil)
 }
 
-// NewClient はDefaultAzureCredentialを使用してAzure Blob Storageクライアントを作成
+// NewClient は環境に応じて自動的に認証方式を選択してAzure Blob Storageクライアントを作成
 //
 // DefaultAzureCredentialは以下の順序で認証を試行：
 //  1. Environment Credential (環境変数)
@@ -171,52 +212,23 @@ func createAccountKeyClient(blobURL string) (*azblob.Client, error) {
 //
 // 参考: https://learn.microsoft.com/en-us/azure/developer/go/sdk/authentication/credential-chains
 func NewClient(ctx context.Context, blobURL string, options ...Option) (*Client, error) {
-	// オプション適用
-	opts := &clientOptions{}
-	for _, option := range options {
-		option(opts)
+	// 環境に応じた認証情報を自動作成
+	credential, err := NewCredential(ctx, blobURL)
+	if err != nil {
+		return nil, fmt.Errorf("認証情報作成失敗: %w", err)
 	}
 
-	var azClient *azblob.Client
-	var err error
-
-	// Azurite環境の場合の処理
-	if isAzuriteEnvironment(blobURL) {
+	// 環境情報を出力
+	if IsAzuriteEnvironment(blobURL) {
 		if strings.HasPrefix(blobURL, "https://") {
-			// HTTPS Azurite: OAuth認証 + InsecureSkipVerify
-			if !opts.insecureSkipVerify {
-				opts.insecureSkipVerify = true
-				fmt.Printf("Azurite HTTPS環境検出: OAuth認証 + 自己署名証明書を自動許可\n")
-			}
-			azClient, err = createOAuthClient(blobURL, opts)
+			fmt.Printf("Azurite HTTPS環境検出: OAuth認証 + 自己署名証明書を自動許可\n")
 		} else if strings.HasPrefix(blobURL, "http://") {
-			// HTTP Azurite: Account Key認証
 			fmt.Printf("Azurite HTTP環境検出: Account Key認証を使用\n")
-			azClient, err = createAccountKeyClient(blobURL)
 		}
 	} else {
-		// Azure Storage: OAuth認証
 		fmt.Printf("Azure Storage環境検出: OAuth認証を使用\n")
-		azClient, err = createOAuthClient(blobURL, opts)
 	}
 
-	if err != nil {
-		return nil, fmt.Errorf("クライアント作成失敗: %w", err)
-	}
-
-	// Enhanced機能付きClientとして返す
-	client := &Client{
-		Client:    azClient,
-		isAzurite: isAzuriteEnvironment(azClient.URL()),
-	}
-
-	// Azurite環境の場合デフォルト値設定
-	if client.isAzurite {
-		client.azuriteDefaults = &SASOptions{
-			AccountName: DevAccountName,
-			AccountKey:  DevAccountKey,
-		}
-	}
-
-	return client, nil
+	// 新アーキテクチャのクライアント作成関数を呼び出し
+	return NewClientWithCredential(ctx, blobURL, credential, options...)
 }
