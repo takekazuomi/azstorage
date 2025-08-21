@@ -45,13 +45,13 @@ func NewOAuthCredential() (*UnifiedCredential, error) {
 func NewAccountKeyCredential(accountName, accountKey string) (*UnifiedCredential, error) {
 	cred, err := azblob.NewSharedKeyCredential(accountName, accountKey)
 	if err != nil {
-		return nil, fmt.Errorf("Account Key認証情報作成失敗: %w", err)
+		return nil, fmt.Errorf("account key認証情報作成失敗: %w", err)
 	}
 	return &UnifiedCredential{credential: cred}, nil
 }
 
 // NewCredential は環境に応じて適切な認証方式を自動選択してUnifiedCredentialを作成
-func NewCredential(ctx context.Context, blobURL string) (*UnifiedCredential, error) {
+func NewCredential(_ context.Context, blobURL string) (*UnifiedCredential, error) {
 	if IsAzuriteEnvironment(blobURL) {
 		if strings.HasPrefix(blobURL, "http://") {
 			// HTTP Azurite: Account Key認証
@@ -67,21 +67,21 @@ func NewCredential(ctx context.Context, blobURL string) (*UnifiedCredential, err
 // IsAzuriteEnvironment はURLからAzurite環境かどうかを判定
 func IsAzuriteEnvironment(url string) bool {
 	// HTTPスキームのAzurite環境
-	if strings.HasPrefix(url, "http://") && 
+	if strings.HasPrefix(url, "http://") &&
 		(strings.Contains(url, "localhost") || strings.Contains(url, "127.0.0.1")) {
 		return true
 	}
-	
+
 	// HTTPSスキームのAzurite環境
 	if strings.HasPrefix(url, "https://") &&
 		(strings.Contains(url, "localhost") || strings.Contains(url, "127.0.0.1")) {
 		return true
 	}
-	
+
 	// devstoreaccount1を含む場合（スキーム問わず）
 	if strings.Contains(url, DevAccountName) {
 		return true
 	}
-	
+
 	return false
 }

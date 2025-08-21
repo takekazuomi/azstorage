@@ -1,0 +1,43 @@
+version: "2"
+
+run:
+  timeout: 5m
+  go: "1.24"
+
+issues:
+  exclude-dirs:
+    - tmp
+    - data  
+    - certs
+    - templates
+  max-same-issues: 3
+  new: false
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - errcheck
+        - gosec
+    - path: main\.go
+      linters:
+        - errcheck
+    - path: ".*\\.pb\\.go"
+      linters:
+        - all
+    - text: "G402: TLS InsecureSkipVerify set true"
+      linters:
+        - gosec        
+  exclude:
+    - "Error return value of .((os\\.)?std(out|err)\\..*|.*Close|.*Flush|os\\.Remove(All)?|.*printf?|os\\.(Un)?Setenv). is not checked"
+
+linters:
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+#  disable:
+#    - unused
+
+
+severity:
+  default-severity: error

@@ -27,8 +27,9 @@ AZURE_USER_OBJECT_ID ?= $(shell az ad signed-in-user show --query id -o tsv 2>/d
 # Go tools設定
 GOBIN := $(PWD)/tmp/bin
 MKCERT := $(GOBIN)/mkcert
+GOLANGCI_LINT := $(GOBIN)/golangci-lint
 
-.PHONY: help deps azurite-start azurite-stop azurite-restart azurite-clean azurite-certs azurite-logs azure-check azure-set-context azure-create-rg azure-generate-name azure-create-storage-cli azure-create-storage azure-setup-msi azure-setup-user azure-setup azure-info azure-delete test-azurite test-azure test-all poc1-azurite poc1-azure poc1-all
+.PHONY: help deps azurite-start azurite-stop azurite-restart azurite-clean azurite-certs azurite-logs azure-check azure-set-context azure-create-rg azure-generate-name azure-create-storage-cli azure-create-storage azure-setup-msi azure-setup-user azure-setup azure-info azure-delete test-azurite test-azure test-all lint lint-fix poc1-azurite poc1-azure poc1-all
 
 help: ## ヘルプ表示
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-20s %s\n", $$1, $$2}'
@@ -37,7 +38,11 @@ $(MKCERT): ## mkcertインストール
 	@mkdir -p $(GOBIN)
 	@GOBIN=$(GOBIN) go install filippo.io/mkcert@v1.4.4 2>/dev/null || echo "Error: mkcertインストール失敗"
 
-deps: $(MKCERT) ## 依存ツールのインストール
+$(GOLANGCI_LINT): ## golangci-lint v2.4.0インストール（公式推奨バイナリ方式）
+	@mkdir -p $(GOBIN)
+	@curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b $(GOBIN) v2.4.0 2>/dev/null || echo "Error: golangci-lint v2.4.0インストール失敗"
+
+deps: $(MKCERT) $(GOLANGCI_LINT) ## 依存ツールのインストール
 
 
 azurite-clean: ## 全Azuriteデータ・証明書削除
@@ -149,6 +154,13 @@ test-azure: ## Azure環境でテスト実行
 	@go test -v ./... -tags=azure || echo "Error: Azureテスト失敗"
 
 test-all: test-azurite test-azure ## 全環境でテスト実行
+
+# コード品質チェック
+lint: $(GOLANGCI_LINT) ## golangci-lintでコード品質チェック
+	@$(GOLANGCI_LINT) run ./... || echo "Error: lint失敗"
+
+lint-fix: $(GOLANGCI_LINT) ## golangci-lintで修正可能な問題を自動修正
+	@$(GOLANGCI_LINT) run --fix ./... || echo "Error: lint修正失敗"
 
 poc1-azurite: azurite-start ## POC1 Azurite環境で実行（AZURITE_HTTP環境変数で制御）
 	@AZURITE_HTTP=${AZURITE_HTTP} USE_AZURE=false go run example/poc1/main.go || echo "Error: POC1 Azurite実行失敗"

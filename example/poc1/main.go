@@ -1,3 +1,4 @@
+// Package main demonstrates Azure Blob Storage operations with SAS generation.
 package main
 
 import (
@@ -26,7 +27,7 @@ func createAzureClient(ctx context.Context) (*blob.Client, error) {
 	// 生成済みStorage Account名読み込み
 	storageNameBytes, err := os.ReadFile(".azure-storage-name")
 	if err != nil {
-		return nil, fmt.Errorf("Azure Storage Account名読み込み失敗: %w", err)
+		return nil, fmt.Errorf("azure Storage Account名読み込み失敗: %w", err)
 	}
 	storageAccountName := strings.TrimSpace(string(storageNameBytes))
 
@@ -36,7 +37,7 @@ func createAzureClient(ctx context.Context) (*blob.Client, error) {
 	// Azureクライアント作成
 	client, err := blob.NewClient(ctx, blobURL)
 	if err != nil {
-		return nil, fmt.Errorf("Azureクライアント作成失敗: %w", err)
+		return nil, fmt.Errorf("azureクライアント作成失敗: %w", err)
 	}
 
 	return client, nil
@@ -49,7 +50,7 @@ func createAzuriteClient(ctx context.Context) (*blob.Client, error) {
 	// HTTP/HTTPS切り替え対応
 	scheme := "https" // デフォルトHTTPS
 	port := "21000"   // HTTPS用ポート
-	
+
 	if os.Getenv("AZURITE_HTTP") == "true" {
 		scheme = "http"
 		port = "20000" // HTTP用ポート
@@ -61,7 +62,7 @@ func createAzuriteClient(ctx context.Context) (*blob.Client, error) {
 	// Azuriteクライアント作成（自動判定対応）
 	client, err := blob.NewClient(ctx, blobURL)
 	if err != nil {
-		return nil, fmt.Errorf("Azuriteクライアント作成失敗: %w", err)
+		return nil, fmt.Errorf("azuriteクライアント作成失敗: %w", err)
 	}
 
 	return client, nil
@@ -99,7 +100,7 @@ func downloadBlob(ctx context.Context, client *blob.Client, containerName, blobN
 	if err != nil {
 		return "", fmt.Errorf("ダウンロード失敗: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	downloadedData, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -126,7 +127,6 @@ func listBlobs(ctx context.Context, client *blob.Client, containerName string) e
 	}
 	return nil
 }
-
 
 // getTestData は接続先に応じたテストデータを返す
 func getTestData(useAzure bool) string {

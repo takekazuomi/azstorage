@@ -1,3 +1,4 @@
+// Package blob provides Azure Blob Storage client with unified authentication support.
 package blob
 
 import (
@@ -10,7 +11,6 @@ import (
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
-	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/sas"
 )
@@ -70,7 +70,7 @@ func (c *Client) IsHTTP() bool {
 	return strings.HasPrefix(c.URL(), "http://")
 }
 
-// IsHTTPS はHTTPS環境かどうかを返す  
+// IsHTTPS はHTTPS環境かどうかを返す
 func (c *Client) IsHTTPS() bool {
 	return strings.HasPrefix(c.URL(), "https://")
 }
@@ -86,7 +86,7 @@ func (c *Client) ApplyDefaults(opts *SASOptions) {
 }
 
 // NewClientWithCredential はUnifiedCredentialを使用してAzure Blob Storageクライアントを作成
-func NewClientWithCredential(ctx context.Context, blobURL string, credential *UnifiedCredential, options ...Option) (*Client, error) {
+func NewClientWithCredential(_ context.Context, blobURL string, credential *UnifiedCredential, options ...Option) (*Client, error) {
 	// オプション適用
 	opts := &clientOptions{}
 	for _, option := range options {
@@ -146,45 +146,6 @@ func NewClientWithCredential(ctx context.Context, blobURL string, credential *Un
 	}
 
 	return client, nil
-}
-
-// createOAuthClient はOAuth認証でクライアント作成
-func createOAuthClient(blobURL string, opts *clientOptions) (*azblob.Client, error) {
-	// DefaultAzureCredential取得
-	cred, err := azidentity.NewDefaultAzureCredential(nil)
-	if err != nil {
-		return nil, fmt.Errorf("認証情報作成失敗: %w", err)
-	}
-
-	// ClientOptions設定
-	var clientOpts *azblob.ClientOptions
-	if opts.insecureSkipVerify {
-		httpClient := &http.Client{
-			Transport: &http.Transport{
-				TLSClientConfig: &tls.Config{
-					InsecureSkipVerify: true,
-				},
-			},
-		}
-		clientOpts = &azblob.ClientOptions{
-			ClientOptions: azcore.ClientOptions{
-				Transport: httpClient,
-			},
-		}
-	}
-
-	return azblob.NewClient(blobURL, cred, clientOpts)
-}
-
-// createAccountKeyClient はAccount Key認証でクライアント作成
-func createAccountKeyClient(blobURL string) (*azblob.Client, error) {
-	// Azurite固定のAccount Key認証情報
-	credential, err := azblob.NewSharedKeyCredential(DevAccountName, DevAccountKey)
-	if err != nil {
-		return nil, fmt.Errorf("Account Key認証情報作成失敗: %w", err)
-	}
-
-	return azblob.NewClientWithSharedKeyCredential(blobURL, credential, nil)
 }
 
 // NewClient は環境に応じて自動的に認証方式を選択してAzure Blob Storageクライアントを作成
