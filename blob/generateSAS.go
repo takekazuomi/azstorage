@@ -35,7 +35,7 @@ func GenerateBlobSAS(ctx context.Context, client *Client, containerName, blobNam
 
 	// HTTP環境でUser Delegation SAS強制使用の場合はエラー
 	if client.IsHTTP() && opts.UseUserDelegationSAS {
-		return "", fmt.Errorf("user Delegation SASはHTTP環境では利用できません。HTTPS環境を使用するか、UseUserDelegationSAS=falseに設定してService SASを使用してください")
+		return "", fmt.Errorf("user delegation SASはHTTP環境では利用できません: HTTPS環境を使用するか、UseUserDelegationSAS=falseに設定してservice SASを使用してください")
 	}
 
 	// HTTP環境またはService SAS強制使用の場合は直接Service SAS生成
@@ -57,7 +57,7 @@ func GenerateBlobSAS(ctx context.Context, client *Client, containerName, blobNam
 
 		// Service SASの情報が不足している場合はエラー
 		if opts.AccountKey == "" || opts.AccountName == "" {
-			return "", fmt.Errorf("user Delegation SAS失敗、Service SAS用の認証情報も不足: %w", err)
+			return "", fmt.Errorf("user delegation SAS失敗、service SAS用の認証情報も不足: %w", err)
 		}
 
 		return generateServiceSAS(ctx, containerName, blobName, opts)
@@ -72,24 +72,24 @@ func generateUserDelegationSAS(ctx context.Context, client *azblob.Client, conta
 	// SAS開始時刻設定（clock skew対応）
 	// "Be careful with SAS start time. set the start time to be at least 15 minutes in the past"
 	// 参考: https://learn.microsoft.com/en-us/azure/storage/common/storage-sas-overview#sas-token
-	start := time.Now().Add(-15 * time.Minute)
+	start := time.Now().UTC().Add(-15 * time.Minute)
 	expiry := start.Add(opts.ExpiryDuration)
 
 	// User Delegation Key取得
-	startStr := start.UTC().Format(time.RFC3339)
-	expiryStr := expiry.UTC().Format(time.RFC3339)
+	s := start.Format(time.RFC3339)
+	e := expiry.Format(time.RFC3339)
 	keyInfo := service.KeyInfo{
-		Start:  &startStr,
-		Expiry: &expiryStr,
+		Start:  &s,
+		Expiry: &e,
 	}
 
-	userDelegationCredential, err := client.ServiceClient().GetUserDelegationCredential(ctx, keyInfo, nil)
+	cred, err := client.ServiceClient().GetUserDelegationCredential(ctx, keyInfo, nil)
 	if err != nil {
-		return "", fmt.Errorf("user Delegation Key取得失敗: %w", err)
+		return "", fmt.Errorf("user delegation key取得失敗: %w", err)
 	}
 
 	// SAS URL生成
-	sasValues := sas.BlobSignatureValues{
+	v := sas.BlobSignatureValues{
 		Protocol:      sas.ProtocolHTTPS,
 		StartTime:     start,
 		ExpiryTime:    expiry,
@@ -98,35 +98,35 @@ func generateUserDelegationSAS(ctx context.Context, client *azblob.Client, conta
 		BlobName:      blobName,
 	}
 
-	sasToken, err := sasValues.SignWithUserDelegation(userDelegationCredential)
+	token, err := v.SignWithUserDelegation(cred)
 	if err != nil {
-		return "", fmt.Errorf("user Delegation SAS署名失敗: %w", err)
+		return "", fmt.Errorf("user delegation SAS署名失敗: %w", err)
 	}
 
 	// 完全なSAS URLを構築
 	blobURL := client.ServiceClient().NewContainerClient(containerName).NewBlobClient(blobName).URL()
 
-	return fmt.Sprintf("%s?%s", blobURL, sasToken.Encode()), nil
+	return fmt.Sprintf("%s?%s", blobURL, token.Encode()), nil
 }
 
 // generateServiceSAS はService SASを生成
 func generateServiceSAS(_ context.Context, containerName, blobName string, opts *SASOptions) (string, error) {
 	if opts.AccountKey == "" || opts.AccountName == "" {
-		return "", fmt.Errorf("service SAS生成にはAccountKeyとAccountNameが必要")
+		return "", fmt.Errorf("service SAS生成にはaccount keyとaccount nameが必要")
 	}
 
 	// SAS開始時刻設定（clock skew対応で15分前から開始）
-	start := time.Now().Add(-15 * time.Minute)
+	start := time.Now().UTC().Add(-15 * time.Minute)
 	expiry := start.Add(opts.ExpiryDuration)
 
 	// Shared Key Credential作成
-	credential, err := azblob.NewSharedKeyCredential(opts.AccountName, opts.AccountKey)
+	cred, err := azblob.NewSharedKeyCredential(opts.AccountName, opts.AccountKey)
 	if err != nil {
-		return "", fmt.Errorf("SharedKey Credential作成失敗: %w", err)
+		return "", fmt.Errorf("shared key credential作成失敗: %w", err)
 	}
 
 	// SAS URL生成
-	sasValues := sas.BlobSignatureValues{
+	v := sas.BlobSignatureValues{
 		Protocol:      sas.ProtocolHTTPS,
 		StartTime:     start,
 		ExpiryTime:    expiry,
@@ -135,7 +135,7 @@ func generateServiceSAS(_ context.Context, containerName, blobName string, opts 
 		BlobName:      blobName,
 	}
 
-	sasToken, err := sasValues.SignWithSharedKey(credential)
+	token, err := v.SignWithSharedKey(cred)
 	if err != nil {
 		return "", fmt.Errorf("service SAS署名失敗: %w", err)
 	}
@@ -144,7 +144,7 @@ func generateServiceSAS(_ context.Context, containerName, blobName string, opts 
 	serviceURL := fmt.Sprintf("https://%s.blob.core.windows.net", opts.AccountName)
 	blobURL := fmt.Sprintf("%s/%s/%s", serviceURL, containerName, blobName)
 
-	return fmt.Sprintf("%s?%s", blobURL, sasToken.Encode()), nil
+	return fmt.Sprintf("%s?%s", blobURL, token.Encode()), nil
 }
 
 // GenerateContainerSAS はコンテナのSAS URLを生成
@@ -158,7 +158,7 @@ func GenerateContainerSAS(ctx context.Context, client *Client, containerName str
 
 	// HTTP環境でUser Delegation SAS強制使用の場合はエラー
 	if client.IsHTTP() && opts.UseUserDelegationSAS {
-		return "", fmt.Errorf("user Delegation SASはHTTP環境では利用できません。HTTPS環境を使用するか、UseUserDelegationSAS=falseに設定してService SASを使用してください")
+		return "", fmt.Errorf("user delegation SASはHTTP環境では利用できません: HTTPS環境を使用するか、UseUserDelegationSAS=falseに設定してservice SASを使用してください")
 	}
 
 	// HTTP環境またはService SAS強制使用の場合は直接Service SAS生成
@@ -177,7 +177,7 @@ func GenerateContainerSAS(ctx context.Context, client *Client, containerName str
 		fmt.Printf("Container User Delegation SAS生成失敗、Service SASを試行: %v\n", err)
 
 		if opts.AccountKey == "" || opts.AccountName == "" {
-			return "", fmt.Errorf("user Delegation SAS失敗、Service SAS用の認証情報も不足: %w", err)
+			return "", fmt.Errorf("user delegation SAS失敗、service SAS用の認証情報も不足: %w", err)
 		}
 
 		return generateContainerServiceSAS(ctx, containerName, opts)
@@ -192,80 +192,80 @@ func generateContainerUserDelegationSAS(ctx context.Context, client *azblob.Clie
 	start := time.Now().Add(-15 * time.Minute)
 	expiry := start.Add(opts.ExpiryDuration)
 
-	startStr := start.UTC().Format(time.RFC3339)
-	expiryStr := expiry.UTC().Format(time.RFC3339)
+	s := start.UTC().Format(time.RFC3339)
+	e := expiry.UTC().Format(time.RFC3339)
 	keyInfo := service.KeyInfo{
-		Start:  &startStr,
-		Expiry: &expiryStr,
+		Start:  &s,
+		Expiry: &e,
 	}
 
-	userDelegationCredential, err := client.ServiceClient().GetUserDelegationCredential(ctx, keyInfo, nil)
+	cred, err := client.ServiceClient().GetUserDelegationCredential(ctx, keyInfo, nil)
 	if err != nil {
-		return "", fmt.Errorf("user Delegation Key取得失敗: %w", err)
+		return "", fmt.Errorf("user delegation key取得失敗: %w", err)
 	}
 
 	// コンテナ権限に変換
-	containerPermissions := sas.ContainerPermissions{
+	perms := sas.ContainerPermissions{
 		Read:   opts.Permissions.Read,
 		Write:  opts.Permissions.Write,
 		Delete: opts.Permissions.Delete,
 		List:   true, // コンテナではList権限も追加
 	}
 
-	sasValues := sas.BlobSignatureValues{
+	v := sas.BlobSignatureValues{
 		Protocol:      sas.ProtocolHTTPS,
 		StartTime:     start,
 		ExpiryTime:    expiry,
-		Permissions:   containerPermissions.String(),
+		Permissions:   perms.String(),
 		ContainerName: containerName,
 	}
 
-	sasToken, err := sasValues.SignWithUserDelegation(userDelegationCredential)
+	token, err := v.SignWithUserDelegation(cred)
 	if err != nil {
-		return "", fmt.Errorf("container User Delegation SAS署名失敗: %w", err)
+		return "", fmt.Errorf("container user delegation SAS署名失敗: %w", err)
 	}
 
 	containerURL := client.ServiceClient().NewContainerClient(containerName).URL()
 
-	return fmt.Sprintf("%s?%s", containerURL, sasToken.Encode()), nil
+	return fmt.Sprintf("%s?%s", containerURL, token.Encode()), nil
 }
 
 // generateContainerServiceSAS はコンテナ用Service SASを生成
 func generateContainerServiceSAS(_ context.Context, containerName string, opts *SASOptions) (string, error) {
 	if opts.AccountKey == "" || opts.AccountName == "" {
-		return "", fmt.Errorf("service SAS生成にはAccountKeyとAccountNameが必要")
+		return "", fmt.Errorf("service SAS生成にはaccount keyとaccount nameが必要")
 	}
 
 	// SAS開始時刻設定（clock skew対応で15分前から開始）
 	start := time.Now().Add(-15 * time.Minute)
 	expiry := start.Add(opts.ExpiryDuration)
 
-	credential, err := azblob.NewSharedKeyCredential(opts.AccountName, opts.AccountKey)
+	cred, err := azblob.NewSharedKeyCredential(opts.AccountName, opts.AccountKey)
 	if err != nil {
-		return "", fmt.Errorf("SharedKey Credential作成失敗: %w", err)
+		return "", fmt.Errorf("shared key credential作成失敗: %w", err)
 	}
 
-	containerPermissions := sas.ContainerPermissions{
+	perms := sas.ContainerPermissions{
 		Read:   opts.Permissions.Read,
 		Write:  opts.Permissions.Write,
 		Delete: opts.Permissions.Delete,
 		List:   true,
 	}
 
-	sasValues := sas.BlobSignatureValues{
+	v := sas.BlobSignatureValues{
 		Protocol:      sas.ProtocolHTTPS,
 		StartTime:     start,
 		ExpiryTime:    expiry,
-		Permissions:   containerPermissions.String(),
+		Permissions:   perms.String(),
 		ContainerName: containerName,
 	}
 
-	sasToken, err := sasValues.SignWithSharedKey(credential)
+	token, err := v.SignWithSharedKey(cred)
 	if err != nil {
-		return "", fmt.Errorf("container Service SAS署名失敗: %w", err)
+		return "", fmt.Errorf("container service SAS署名失敗: %w", err)
 	}
 
 	containerURL := fmt.Sprintf("https://%s.blob.core.windows.net/%s", opts.AccountName, containerName)
 
-	return fmt.Sprintf("%s?%s", containerURL, sasToken.Encode()), nil
+	return fmt.Sprintf("%s?%s", containerURL, token.Encode()), nil
 }
