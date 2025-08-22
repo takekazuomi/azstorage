@@ -12,7 +12,7 @@ import (
 
 // UnifiedCredential はTokenCredentialとSharedKeyCredentialを統合する構造体
 type UnifiedCredential struct {
-	credential interface{} // azcore.TokenCredential or *azblob.SharedKeyCredential
+	credential any // azcore.TokenCredential or *azblob.SharedKeyCredential
 }
 
 // GetCredential は内部の認証情報を返す
@@ -50,15 +50,39 @@ func NewAccountKeyCredential(accountName, accountKey string) (*UnifiedCredential
 	return &UnifiedCredential{credential: cred}, nil
 }
 
-// NewCredential は環境に応じて適切な認証方式を自動選択してUnifiedCredentialを作成
+// NewCredential は環境に応じて適切な認証方式を選択してUnifiedCredentialを作成
+//
+// 認証方式の選択ルール
+//
+// 以下の順序で認証を試行：
+//  1. Environment Credential (環境変数)
+//  2. Workload Identity Credential
+//  3. Managed Identity Credential (Azure環境)
+//  4. Azure CLI Credential (az login)
+//  5. Azure Developer CLI Credential (azd auth login)
+//
+// Environment Credential用環境変数：
+//   - AZURE_TENANT_ID: テナントID (必須)
+//   - AZURE_CLIENT_ID: クライアント(アプリケーション)ID (必須)
+//   - AZURE_CLIENT_SECRET: クライアントシークレット (ClientSecret認証用)
+//   - AZURE_CLIENT_CERTIFICATE_PATH: 証明書パス (Certificate認証用)
+//   - AZURE_USERNAME, AZURE_PASSWORD: ユーザー名/パスワード (UsernamePassword認証用)
+//
+// 認証チェーン制御用環境変数 (AZURE_TOKEN_CREDENTIALS):
+//   - azidentity v1.10.0+: カテゴリ除外
+//   - "prod": 開発者ツール認証を除外
+//   - "dev": デプロイサービス認証を除外
+//   - azidentity v1.11.0+: 特定認証選択
+//   - "AzureCLICredential", "EnvironmentCredential", "ManagedIdentityCredential" 等
+//
+// 参考: https://learn.microsoft.com/en-us/azure/developer/go/sdk/authentication/credential-chains
 func NewCredential(_ context.Context, blobURL string) (*UnifiedCredential, error) {
 	if IsAzuriteEnvironment(blobURL) {
 		if strings.HasPrefix(blobURL, "http://") {
 			// HTTP Azurite: Account Key認証
 			return NewAccountKeyCredential(DevAccountName, DevAccountKey)
 		}
-		// HTTPS Azurite: OAuth認証
-		return NewOAuthCredential()
+		// HTTPS Azurite: OAuth認証を利用
 	}
 	// Azure Storage: OAuth認証
 	return NewOAuthCredential()
